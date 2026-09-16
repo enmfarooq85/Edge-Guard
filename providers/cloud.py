@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from providers.base import BaseAIProvider, ProviderResponse
 
 class OpenRouterCloudProvider(BaseAIProvider):
-    def __init__(self, name: str = "openrouter_cloud", model_name: str = "openrouter/free"):
+    def __init__(self, name: str = "openrouter_cloud", model_name: str = "openrouter/free", **kwargs):
         super().__init__(name=name)
         
         # 1. Force load the .env file exactly when the provider is created
@@ -78,3 +78,32 @@ class OpenRouterCloudProvider(BaseAIProvider):
                 latency_ms=elapsed_ms,
                 error_message=f"Network execution failure: {str(e)}"
             )
+
+
+class MockCloudProvider(BaseAIProvider):
+    def __init__(self, name: str = "mock_cloud", simulated_latency_ms: float = 350.0, should_fail: bool = False):
+        super().__init__(name=name)
+        self.simulated_latency_ms = simulated_latency_ms
+        self.should_fail = should_fail
+
+    def execute(self, prompt: str, **kwargs) -> ProviderResponse:
+        start = time.perf_counter()
+        time.sleep(self.simulated_latency_ms / 1000.0)
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+        if self.should_fail:
+            return ProviderResponse(
+                provider_name=self.name,
+                success=False,
+                output_text="",
+                latency_ms=elapsed_ms,
+                error_message="Cloud fallback service unavailable"
+            )
+
+        output = '{"status": "success", "invoice_id": "INV-CLOUD-99", "amount": 450.00, "provider": "cloud_fallback"}'
+        return ProviderResponse(
+            provider_name=self.name,
+            success=True,
+            output_text=output,
+            latency_ms=elapsed_ms
+        )
