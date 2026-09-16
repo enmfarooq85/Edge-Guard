@@ -5,7 +5,8 @@ from pydantic import BaseModel
 from engine.runtime import EdgeGuardRuntime, ExecutionRequest
 from policies.policy import ExecutionPolicy, DecisionRoute
 from providers.local import MockLocalProvider
-from providers.cloud import OpenRouterCloudProvider
+from providers.cloud import MockCloudProvider
+
 
 class BenchmarkResult(BaseModel):
     mode: str
@@ -52,7 +53,7 @@ class BenchmarkSuite:
             sim_fail = (idx % 9 == 0)
 
             local_prov = MockLocalProvider(simulated_latency_ms=sim_lat, should_fail=sim_fail)
-            cloud_prov = OpenRouterCloudProvider(simulated_latency_ms=350.0)
+            cloud_prov = MockCloudProvider(simulated_latency_ms=350.0)
 
             if mode == "LOCAL_ONLY":
                 res = local_prov.execute_with_telemetry(prompt)
