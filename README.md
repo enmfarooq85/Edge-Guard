@@ -107,16 +107,20 @@ dashboard/app.py or HTTP client
 
 ## Setup
 
-From the `Edge-Guard` directory:
+After cloning the repository, enter the project directory:
 
 ```powershell
+git clone https://github.com/enmfarooq85/Edge-Guard.git
+cd Edge-Guard
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Set these values in `.env`:
+For the dashboard simulation, no API key is required for the normal local and
+privacy-degradation scenarios. Configure the OpenRouter values only if you want
+to demonstrate a live cloud recovery:
 
 ```text
 OPENROUTER_API_KEY=your_openrouter_key
@@ -126,9 +130,34 @@ QAI_HUB_MODEL_PATH=path/to/model.onnx
 QAI_HUB_INPUT_DATASET_PATH=path/to/inputs.h5
 ```
 
+`QAI_HUB_MODEL_PATH` and `QAI_HUB_INPUT_DATASET_PATH` are optional. They are
+needed only for the unverified real AI Hub inference-job path. The current
+dashboard demo uses deterministic Python edge simulation.
+
 Never commit `.env` or API tokens. Rotate any credential that has been exposed in shell history, screenshots, logs, or shared documents.
 
-## Run the Services
+## Run the Dashboard Demo
+
+The simplest way to run the project is the Streamlit dashboard. It runs the
+Edge-Guard runtime directly and does not require the FastAPI server.
+
+```powershell
+python -m streamlit run dashboard/app.py --server.port 8501
+```
+
+Open `http://localhost:8501` and use the `Request playground` tab. The default
+demo settings should produce `LOCAL` and `LOCAL_SUCCESS`.
+
+The sidebar controls let you demonstrate:
+
+- fast edge simulation -> `LOCAL`
+- slow edge simulation -> `CLOUD` when live cloud recovery is configured
+- slow edge plus strict privacy -> `DEGRADE`
+- invalid edge output -> schema fallback or privacy degradation
+
+The benchmark tab uses offline mock providers and does not require API keys.
+
+## Optional FastAPI Service
 
 Start the FastAPI backend:
 
@@ -142,13 +171,8 @@ Open the API at `http://localhost:8000`. The health endpoint is:
 http://localhost:8000/health
 ```
 
-Start the dashboard in a second terminal:
-
-```powershell
-python -m streamlit run dashboard/app.py --server.port 8501
-```
-
-Open `http://localhost:8501` for the Live Playground, Telemetry, and Benchmarks tabs.
+The dashboard and FastAPI service are separate entry points. Run both only when
+you want to test the HTTP API and the dashboard at the same time.
 
 ## API Examples
 
