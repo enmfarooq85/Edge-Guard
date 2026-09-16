@@ -1,241 +1,189 @@
 # Edge-Guard
 
-Adaptive runtime and policy engine for edge AI.
+**Adaptive Runtime & Policy Engine for Edge AI**
 
-Edge-Guard is an AI Infra Summit 2026 project for the **Qualcomm Model-to-device Innovation** track. It gives an application a deterministic way to choose between an edge execution path, cloud fallback, and safe degradation when latency, output quality, privacy, or availability requirements are not met.
+Edge-Guard is a policy-driven runtime layer for AI applications that want the privacy and efficiency of edge execution without blindly depending on one execution path. It evaluates runtime conditions and application requirements, then chooses **LOCAL**, **CLOUD**, or **SAFE DEGRADATION** while recording why.
 
 ## The Problem
 
-Local AI is fast, private, and inexpensive, but edge execution is not always predictable. A device can be slow, unavailable, or return malformed structured output. Sending every request to the cloud solves availability but increases latency, cost, and data exposure.
+Edge AI can reduce cloud dependency, keep sensitive data closer to the user, and support applications where network access is limited. But local execution is not always predictable: latency can vary, devices can fail, and structured output can be invalid.
 
-Edge-Guard makes that tradeoff explicit and enforceable:
+Cloud AI provides a recovery option, but it introduces network dependency, provider cost, and data-egress considerations. Some requests must not leave the device.
 
-```text
-Application request
-	|
-	v
-Edge-Guard Runtime
-	|
-	v
-Deterministic Policy Engine
-	|
-	v
-Local / Qualcomm execution
-	|
-	v
-Schema validation and latency checks
-	|
-   +----+----+
-   |         |
-   v         v
-Cloud     Degrade
-fallback  safely
-	|
-	v
-Telemetry and visible decision
-```
+Developers therefore need a controlled answer to three questions:
 
-## What It Demonstrates
+- When should a request stay on the preferred edge path?
+- When may the request use cloud recovery?
+- When must the system refuse cloud execution and stop safely?
 
-- `LOCAL_SUCCESS`: local execution meets the latency and schema policy.
-- `LOCAL_LATENCY_VIOLATION`: local execution exceeds the configured SLA and is routed to cloud when permitted.
-- `LOCAL_SCHEMA_FAILURE`: malformed structured output is detected and routed to cloud when permitted.
-- `LOCAL_FAILURE_TRIGGERED_CLOUD`: local execution fails and cloud fallback is allowed.
-- `LOCAL_FAILED_PRIVACY_BLOCK`: local execution fails while strict privacy blocks cloud transmission.
-- `CLOUD_PROVIDER_UNAVAILABLE`: the request degrades safely when no fallback provider is available.
-- Structured telemetry containing route, decision reason, latency, validation state, and final output.
-- A repeatable comparison of `LOCAL_ONLY`, `CLOUD_ONLY`, and `EDGE_GUARD` workloads.
+## The Solution
 
-## Qualcomm Integration Status
+Edge-Guard sits between an application and its AI execution providers. It attempts the preferred local path, evaluates measurable execution conditions, applies explicit policy, and returns an explainable route decision.
 
-The project uses the official `qai-hub` Python client and the Qualcomm AI Hub Workbench device-discovery workflow.
+![Edge-Guard execution concept](images/ai_execution.jpg)
 
-Verified integration details:
+The current dashboard uses deterministic edge simulation so these decisions can be demonstrated repeatably. This simulation is not a claim of physical Qualcomm NPU execution.
 
-| Item | Current implementation |
-| --- | --- |
-| Qualcomm technology | Qualcomm AI Hub / AI Hub Workbench client |
-| Target device | Snapdragon 8 Elite QRD by default |
-| Authentication | `QAI_HUB_API_TOKEN` through `qai_hub.Client` |
-| Verified operation | Authenticated device discovery |
-| Provider boundary | `QualcommAIHubProvider` |
-| Inference job | Opt-in through model and input-dataset paths |
+## How It Works
 
-Important technical disclosure: AI Hub Workbench executes inference on a hosted Qualcomm device, not on the laptop's local NPU. The provider now submits a real inference job when `QAI_HUB_MODEL_PATH` and `QAI_HUB_INPUT_DATASET_PATH` are configured. Without those values, it fails explicitly after authentication rather than pretending that inference occurred.
+1. The application sends an AI request with execution requirements.
+2. Edge-Guard attempts the preferred local or edge path.
+3. The runtime measures execution state and latency.
+4. Structured output is validated when the policy requires it.
+5. The policy engine decides whether the local result satisfies the requirements.
+6. If local execution violates policy and cloud recovery is allowed, the request is routed to cloud.
+7. If cloud use is prohibited or unavailable, Edge-Guard degrades safely and records the decision.
 
-## Architecture
+## Policy-Driven Execution
 
-```text
-dashboard/app.py or HTTP client
-	      |
-	      v
-       engine/runtime.py
-	      |
-	      v
-       policies/policy.py
-	  /          \
-	 v            v
- providers/       validation/
- qualcomm.py     validator.py
- local.py             |
- cloud.py             v
-	  telemetry/logger.py
-	      |
-	      v
-       benchmarks/suite.py
-```
+| Policy | What it checks | Possible response |
+| --- | --- | --- |
+| Latency SLA | Whether local execution stays below the configured limit | Keep local, use cloud, or degrade |
+| Structured output | Whether output is valid JSON and contains required keys | Keep local, use cloud, or degrade |
+| Privacy | Whether the request is allowed to leave the local boundary | Allow recovery or degrade |
+| Cloud fallback | Whether cloud recovery is permitted | Use cloud or degrade |
+| Execution availability | Whether the local provider succeeds | Keep local, use cloud, or degrade |
 
-### Components
+The MVP uses deterministic rules intentionally. Routing decisions should be explainable, reproducible, and easy for an application to enforce.
 
-- `engine/runtime.py`: executes local work, validates it, applies policy, and invokes fallback or degradation.
-- `policies/policy.py`: deterministic latency, privacy, fallback, and schema decisions.
-- `providers/qualcomm.py`: Qualcomm AI Hub client integration and controlled edge simulation options.
-- `providers/local.py`: deterministic local provider used by tests and benchmarks.
-- `providers/cloud.py`: OpenRouter fallback provider and offline `MockCloudProvider`.
-- `validation/validator.py`: JSON object and required-key validation.
-- `telemetry/logger.py`: in-memory structured event log and summary metrics.
-- `benchmarks/suite.py`: reproducible local, cloud, and adaptive comparisons.
-- `dashboard/app.py`: Streamlit playground, telemetry view, and benchmark view.
-- `main.py`: FastAPI service exposing health, execution, telemetry, and benchmark endpoints.
+![Edge-Guard policy flow](images/policy_decision_flow.jpg)
 
-## Requirements
+## Why This Matters
 
-- Python 3.10 or newer
-- OpenRouter API key for live cloud fallback
-- Qualcomm AI Hub API token for live device discovery
-- Optional: a Qualcomm AI Hub account with an available target device
+Without a shared runtime layer, every AI feature may need its own timeout handling, output validation, privacy checks, provider switching, and telemetry logic. Edge-Guard centralizes those decisions into a reusable execution policy instead of scattering fallback behavior throughout an application.
 
-## Setup
+## Qualcomm Integration
 
-After cloning the repository, enter the project directory:
+Edge-Guard integrates with the Qualcomm AI Hub workflow as its device-side execution boundary. The current implementation verifies the `qai_hub` client authentication path and target-device discovery, using **Snapdragon 8 Elite QRD** as the default target.
+
+The provider also contains an inference-job bridge for a compatible model and input dataset. A completed real inference job is not claimed in the current submission because those model and dataset assets are not configured. The dashboard demonstration uses deterministic Python edge simulation for reproducible policy testing.
+
+This distinction is deliberate: AI Hub hosted-device discovery and an optional inference bridge are not the same claim as local inference on the laptop's Qualcomm NPU.
+
+## System Architecture
+
+![Edge-Guard repository architecture](images/architecture.jpg)
+
+The system consists of:
+
+- **Application interfaces:** a Streamlit dashboard and an optional FastAPI API.
+- **Runtime:** orchestrates provider execution, validation, policy evaluation, fallback, and degradation.
+- **Policy engine:** evaluates latency, execution success, privacy, fallback permission, and schema results.
+- **Provider layer:** supports deterministic edge simulation, Qualcomm AI Hub integration, live OpenRouter fallback, and offline mock providers.
+- **Validation:** checks JSON structure and required output keys.
+- **Telemetry:** records structured in-memory decision events.
+- **Benchmarking:** compares local-only, cloud-only, and adaptive execution using deterministic mock providers.
+
+## What We Built
+
+- Deterministic policy-driven execution routing
+- Latency SLA evaluation
+- Structured-output and required-key validation
+- Local and edge provider abstraction
+- Qualcomm AI Hub integration boundary
+- Cloud fallback provider
+- Privacy-constrained safe degradation
+- Structured decision telemetry
+- Streamlit observability dashboard
+- FastAPI runtime interface
+- Controlled benchmark comparison
+
+## Evaluation
+
+The benchmark compares the same controlled workload through:
+
+- **LOCAL_ONLY:** deterministic local provider only
+- **CLOUD_ONLY:** deterministic cloud mock only
+- **EDGE_GUARD:** deterministic local provider with cloud mock recovery
+
+The current benchmark produces:
+
+- total request count
+- local, cloud, and degraded route counts
+- P50 latency
+- P95 latency
+- average latency
+- success rate
+
+The benchmark is generated at runtime and is not stored as a result artifact in the repository. Final values should be captured from the final run used for a presentation. The current implementation uses deterministic mock providers and controlled latency/failure patterns; results are not Qualcomm hardware measurements, live OpenRouter measurements, or universal performance claims.
+
+## Demonstration Concept
+
+### Normal Edge Execution
+
+The local result satisfies the configured latency and output policies.
+
+**Result:** `LOCAL`
+
+### Reliability Recovery
+
+The local result violates a latency, execution, or structured-output policy. If cloud fallback is permitted, Edge-Guard attempts recovery.
+
+**Result:** `CLOUD`
+
+### Privacy-Constrained Failure
+
+The local result fails, but privacy or fallback policy prohibits cloud transmission.
+
+**Result:** `DEGRADE`
+
+Together, these scenarios demonstrate the central value: local execution is preferred, cloud recovery is conditional, and privacy rules can force a safe stop.
+
+## Results and Evidence
+
+The repository provides a reproducible benchmark framework and six passing policy scenarios covering local success, latency fallback, schema fallback, privacy blocking, local failure recovery, and missing-cloud degradation.
+
+Benchmark evidence is workload- and environment-specific. It should be interpreted as controlled routing evidence, not as universal hardware performance.
+
+## Technology Stack
+
+| Layer | Technology | Purpose |
+| --- | --- | --- |
+| Runtime | Python | Execution orchestration and provider contracts |
+| Policy and validation | Pydantic-backed Python models | Structured policies, responses, and validation results |
+| Dashboard | Streamlit | Interactive playground, decision log, and benchmark view |
+| API | FastAPI and Uvicorn | Optional HTTP runtime interface |
+| Qualcomm integration | Qualcomm AI Hub / `qai_hub` | Authentication, device discovery, and optional inference-job boundary |
+| Cloud provider | OpenRouter | Configurable live fallback provider |
+| Telemetry | In-memory structured logger | Decision events and summary metrics |
+| Benchmarking | Deterministic mock providers | Controlled local, cloud, and adaptive comparison |
+
+## Quick Start
+
+Clone the repository, install the requirements, and start the dashboard:
 
 ```powershell
-git clone https://github.com/enmfarooq85/Edge-Guard.git
-cd Edge-Guard
+git clone https://github.com/aounraza379/edge-guard-hackathon.git
+cd edge-guard-hackathon
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-Copy-Item .env.example .env
-```
-
-For the dashboard simulation, no API key is required for the normal local and
-privacy-degradation scenarios. Configure the OpenRouter values only if you want
-to demonstrate a live cloud recovery:
-
-```text
-OPENROUTER_API_KEY=your_openrouter_key
-OPENROUTER_MODEL_NAME=nvidia/nemotron-3.5-lightning:free
-QAI_HUB_API_TOKEN=your_qai_hub_token
-QAI_HUB_MODEL_PATH=path/to/model.onnx
-QAI_HUB_INPUT_DATASET_PATH=path/to/inputs.h5
-```
-
-`QAI_HUB_MODEL_PATH` and `QAI_HUB_INPUT_DATASET_PATH` are optional. They are
-needed only for the unverified real AI Hub inference-job path. The current
-dashboard demo uses deterministic Python edge simulation.
-
-Never commit `.env` or API tokens. Rotate any credential that has been exposed in shell history, screenshots, logs, or shared documents.
-
-## Run the Dashboard Demo
-
-The simplest way to run the project is the Streamlit dashboard. It runs the
-Edge-Guard runtime directly and does not require the FastAPI server.
-
-```powershell
 python -m streamlit run dashboard/app.py --server.port 8501
 ```
 
-Open `http://localhost:8501` and use the `Request playground` tab. The default
-demo settings should produce `LOCAL` and `LOCAL_SUCCESS`.
+Open `http://localhost:8501`. The deterministic dashboard simulation and offline benchmark do not require API keys. Live cloud recovery requires an OpenRouter credential configured through the deployment environment. Qualcomm inference requires separately configured compatible model and input-dataset assets.
 
-The sidebar controls let you demonstrate:
-
-- fast edge simulation -> `LOCAL`
-- slow edge simulation -> `CLOUD` when live cloud recovery is configured
-- slow edge plus strict privacy -> `DEGRADE`
-- invalid edge output -> schema fallback or privacy degradation
-
-The benchmark tab uses offline mock providers and does not require API keys.
-
-## Optional FastAPI Service
-
-Start the FastAPI backend:
+The optional API can be started with:
 
 ```powershell
 uvicorn main:app --reload --port 8000
 ```
 
-Open the API at `http://localhost:8000`. The health endpoint is:
+## Project Links
 
-```text
-http://localhost:8000/health
-```
-
-The dashboard and FastAPI service are separate entry points. Run both only when
-you want to test the HTTP API and the dashboard at the same time.
-
-## API Examples
-
-Execute a request with a latency and schema policy:
-
-```powershell
-Invoke-RestMethod -Method Post `
-  -Uri http://localhost:8000/v1/execute `
-  -ContentType "application/json" `
-  -Body '{"prompt":"Extract invoice INV-9921","policy":{"latency_sla_ms":200,"required_schema_keys":["invoice_id"],"allow_cloud_fallback":true,"strict_privacy":false}}'
-```
-
-Run the comparison benchmark:
-
-```powershell
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/v1/benchmark?count=20"
-```
-
-## Demo Script
-
-1. Open the dashboard and leave the latency SLA at `200 ms`.
-2. Run with simulated latency below the SLA and observe `LOCAL`.
-3. Raise simulated local latency above the SLA and observe `CLOUD`.
-4. Enable malformed JSON and observe schema validation trigger fallback.
-5. Enable simulated edge failure and strict privacy together and observe `DEGRADE`.
-6. Open Telemetry to explain the selected route, reason, latency, and validation state.
-7. Run the benchmark tab and compare `LOCAL_ONLY`, `CLOUD_ONLY`, and `EDGE_GUARD`.
-
-The sidebar simulation controls are deliberately deterministic so the policy behavior can be demonstrated without repeatedly calling external services.
-
-## Tests and Benchmarks
-
-Run the six-scenario policy matrix:
-
-```powershell
-python -m unittest tests/matrix.py
-```
-
-The matrix covers local success, latency fallback, schema fallback, privacy blocking, local failure fallback, and missing cloud provider degradation.
-
-Run a benchmark from Python:
-
-```powershell
-python -c "from benchmarks.suite import BenchmarkSuite; print(BenchmarkSuite(20).run_comparison())"
-```
-
-The benchmark uses the same workload shape for all modes and records total latency, P50, P95, average latency, route counts, degradation count, and success rate. Its local and cloud providers are deterministic mocks; these results are engineering comparison evidence, not a claim about universal Qualcomm hardware performance.
-
-## Current Validation
-
-The current repository has verified:
-
-- Six policy tests passing with `python -m unittest tests/matrix.py`.
-- Benchmark execution for all three modes.
-- Authenticated Qualcomm AI Hub access and device discovery.
-- Dashboard simulation routes for local success, cloud fallback, schema failure, and privacy degradation.
-
-## Limitations and Next Step
-
-The real Qualcomm inference path is implemented, but it requires a compatible model artifact and input dataset. Until those are configured and a job completes successfully, describe the Qualcomm portion as authenticated AI Hub device discovery plus an available inference bridge, not as completed local NPU inference.
+- [GitHub repository](https://github.com/aounraza379/edge-guard-hackathon)
+- Live demo: to be added after deployment
+- Demo video: to be added
+- Presentation: to be added
 
 ## Project Status
 
-- Phase A: complete. Test matrix and offline benchmark fallback are fixed.
-- Phase B: complete. Qualcomm authentication and dashboard simulations are wired and validated.
-- Phase C: documentation complete. Real compiled Qualcomm model inference remains the major technical follow-up before claiming a full device-side MVP.
+Edge-Guard currently provides a working policy-driven runtime, deterministic edge simulation, conditional cloud fallback and degradation paths, structured in-memory telemetry, controlled benchmark comparison, dashboard visualization, an optional API, and Qualcomm AI Hub authentication/device-discovery integration. Real Qualcomm model inference depends on a compatible configured model and input dataset.
+
+## Limitations
+
+- The current dashboard edge path is deterministic Python simulation, not verified local Qualcomm NPU inference.
+- The Qualcomm inference bridge requires compatible model and input-dataset assets that are not currently configured.
+- Benchmark results use deterministic mock providers and are environment-specific.
+- Live cloud recovery depends on provider availability, network access, and deployment configuration.
+- Telemetry is currently held in memory and is not a persistent observability store.
